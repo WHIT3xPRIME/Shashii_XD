@@ -9,20 +9,35 @@ jobs:
     timeout-minutes: 7200
 
     steps:
-      - name: Configure Core RDP Settings and Disable Timeouts
+      - name: Configure Core RDP Settings and Disable Timeouts (FIXED PATHS) 👈 यहाँ बदलाव किया गया
         run: |
-          # RDP सक्षम करें और टाइमआउट हटाएं
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+          # 1. RDP सक्षम करें
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+                             -Name "fDenyTSConnections" -Value 0 -Force
 
+          # 2. RDP-Tcp सेटिंग्स को मज़बूती से सेट करें (केवल तभी जब पथ मौजूद हो)
+          $RDPPath = 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
+          
+          # यह सुनिश्चित करता है कि पथ मौजूद है, नहीं तो यह सेटिंग्स नहीं चलेंगी।
+          if (Test-Path $RDPPath) {
+              Set-ItemProperty -Path $RDPPath `
+                                 -Name "UserAuthentication" -Value 0 -Force
+              Set-ItemProperty -Path $RDPPath `
+                                 -Name "SecurityLayer" -Value 0 -Force
+          } else {
+              Write-Warning "RDP-Tcp path not found. Skipping detailed security settings."
+          }
+
+          # 3. Timeouts हटाएं (Value 0 = Never)
           $tsPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
           if (-not (Test-Path $tsPath)) { New-Item $tsPath -Force | Out-Null }
           Set-ItemProperty -Path $tsPath -Name "MaxIdleTime" -Value 0 -Type DWord -Force
           Set-ItemProperty -Path $tsPath -Name "MaxDisconnectionTime" -Value 0 -Type DWord -Force
           
+          # 4. Firewall Rule
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          netsh advfirewall firewall add rule name="RDP-Tailscale" `
+            dir=in action=allow protocol=TCP localport=3389
 
           Restart-Service -Name TermService -Force
 
@@ -49,15 +64,14 @@ jobs:
               exit 1
           }
 
-      - name: Install Visual C++ Redistributable 2013 (Fixes MSVCR120.dll) 👈 यहाँ URL बदला गया
+      - name: Install Visual C++ Redistributable 2013 (Fixes MSVCR120.dll)
         run: |
-          # नया URL जो काम करता है
+          # यहाँ लेटेस्ट और वर्किंग URL इस्तेमाल किया गया है
           $vcredistUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe" 
           $installerPath = "$env:TEMP\vcredist_x64.exe"
           
           Invoke-WebRequest -Uri $vcredistUrl -OutFile $installerPath
           
-          # /norestart फ्लैग के साथ साइलेंट इंस्टॉलेशन
           Start-Process $installerPath -ArgumentList "/install", "/quiet", "/norestart" -Wait
           
           Remove-Item $installerPath -Force
@@ -112,4 +126,3 @@ jobs:
               Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
               Start-Sleep -Seconds 300
           }
-          
